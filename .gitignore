@@ -4,3 +4,4 @@ creds.ini
 __pycache__/
 *.pyc
 venv
+data

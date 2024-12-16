@@ -18,11 +18,10 @@ def forecast_weather():
     """
     Анализ погодных условий по городам
     """
-    # city_name = "MOSCOW"
-    # url_with_data = get_url_by_city_name(city_name)
-    # resp = YandexWeatherAPI.get_forecasting(url_with_data)
-    # print(resp)
-    pass
+    data_fetching_task = DataFetchingTask(CITIES)
+    data_fetching_task.run()
+    data_fetching_task.save_results_to_json_file()
+    
 
 
 if __name__ == "__main__":

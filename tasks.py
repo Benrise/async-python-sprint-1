@@ -141,8 +141,7 @@ class DataAggregationTask(ServiceClass):
         self.input_path = input_path
         self.max_workers = max_workers
         self.results = []
-        
-        
+       
     def _get_days_period(self, data: Dict[str, Dict]) -> List[str]:
         days_period = set()
         
@@ -169,19 +168,19 @@ class DataAggregationTask(ServiceClass):
         return sum(values) / len(values) if values else 0
     
     def _process_city_stats(self, city_name: str, city_data: Dict) -> Dict:
+        logging.debug(f"Process {multiprocessing.current_process().name} started calculating stats for {city_name}")
         temperature_values = self._get_temperature_values(city_data)
         rain_hours_values = self._get_rain_hours_values(city_data)
         
         avg_temp = self._calculate_avg(temperature_values)
         avg_rain_hours = self._calculate_avg(rain_hours_values)
-        
+        logging.debug(f"Process {multiprocessing.current_process().name} finished calculating stats for {city_name}")
         return {
             'avg_temp': avg_temp,
             'avg_rain_hours': avg_rain_hours,
             'temperature_values': temperature_values,
             'rain_hours_values': rain_hours_values
         }
-
 
     def run(self) -> Dict[str, Any]:
         data: dict = self.load_json_data(self.input_path)
@@ -245,15 +244,19 @@ class DataAnalyzingTask:
                 for future in as_completed(futures):
                     city_name = futures[future]
                     try:
+                        logging.debug(f"Thread {threading.current_thread().name} started writing rows for {city_name}")
                         row_temp, row_rain = future.result()
                         writer.writerow(row_temp)
                         writer.writerow(row_rain)
+                        logging.debug(f"Thread {threading.current_thread().name} finished writing rows for {city_name}")
                     except Exception as e:
                         logging.error(f"Error while processing {city_name} to .csv file: {e}")
     
     def _process_city_csv_data(self, city_name: str, city_stats: Dict, rating: int) -> List:
+        logging.debug(f"Thread {threading.current_thread().name} started creating rows for {city_name}")
         row_temp = [city_name, 'Температура, среднее', *city_stats['temperature_values'], city_stats['avg_temp'], rating]
         row_rain = ['', 'Без осадков, часов', *city_stats['rain_hours_values'], city_stats['avg_rain_hours'], ''] 
+        logging.debug(f"Thread {threading.current_thread().name} finished creating rows for {city_name}")
         
         return row_temp, row_rain
     

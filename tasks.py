@@ -6,7 +6,7 @@ import threading
 import logging
 
 from datetime import datetime
-from multiprocessing import Manager, Pool
+from multiprocessing import Manager
 from typing import Dict, Any, List
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
@@ -208,11 +208,10 @@ class DataAggregationTask(ServiceClass):
             'data': processed_data,
         }
 
-
 class DataAnalyzingTask:
     def __init__(
         self,
-        output_path: str = './data/aggregation_results',
+        output_path: str = './data/final_results',
         output_format: str = 'csv',
         max_workers: int = 18
     ):
@@ -227,18 +226,30 @@ class DataAnalyzingTask:
         
         return ratings
 
-
     def _save_to_csv(self, data: Dict[str, Dict], output_path: str, days_period: List[str], ratings: Dict[str, int]):
+        """ 
+        Используем потоки, т.к. задача относится к IO-bound, записываем данные в csv файл
+        """
         headers = ['Город/день', '', *days_period, 'Среднее', 'Рейтинг']
 
         with open(output_path, mode='w', encoding='utf-8', newline='') as csvfile:
             writer = csv.writer(csvfile)
             writer.writerow(headers)
+            
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                futures = {
+                    executor.submit(self._process_city_csv_data, city_name, city_stats, ratings[city_name]): city_name
+                    for city_name, city_stats in data.items()
+                }
 
-            for city_name, city_stats in data.items():
-                row_temp, row_rain = self._process_city_csv_data(city_name, city_stats, ratings[city_name])
-                writer.writerow(row_temp)
-                writer.writerow(row_rain)
+                for future in as_completed(futures):
+                    city_name = futures[future]
+                    try:
+                        row_temp, row_rain = future.result()
+                        writer.writerow(row_temp)
+                        writer.writerow(row_rain)
+                    except Exception as e:
+                        logging.error(f"Error while processing {city_name} to .csv file: {e}")
     
     def _process_city_csv_data(self, city_name: str, city_stats: Dict, rating: int) -> List:
         row_temp = [city_name, 'Температура, среднее', *city_stats['temperature_values'], city_stats['avg_temp'], rating]

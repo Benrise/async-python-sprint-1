@@ -176,12 +176,10 @@ class DataAggregationTask(ServiceClass):
         avg_rain_hours = self._calculate_avg(rain_hours_values)
         
         return {
-            city_name: {
-                'avg_temp': avg_temp,
-                'avg_rain_hours': avg_rain_hours,
-                'temperature_values': temperature_values,
-                'rain_hours_values': rain_hours_values
-            }
+            'avg_temp': avg_temp,
+            'avg_rain_hours': avg_rain_hours,
+            'temperature_values': temperature_values,
+            'rain_hours_values': rain_hours_values
         }
 
 
@@ -221,3 +219,40 @@ class DataAnalyzingTask:
         self.output_path = output_path + '.' + output_format
         self.output_format = output_format
         self.max_workers = max_workers
+        
+    def _calculate_ratings(self, data: Dict[str, Dict]) -> Dict[str, int]:
+        sorted_cities = sorted(data.items(), key=lambda item: (item[1]['avg_temp'], item[1]['avg_rain_hours']), reverse=True)
+        
+        ratings = {city_name: index + 1 for index, (city_name, _) in enumerate(sorted_cities)}
+        
+        return ratings
+
+
+    def _save_to_csv(self, data: Dict[str, Dict], output_path: str, days_period: List[str], ratings: Dict[str, int]):
+        headers = ['Город/день', '', *days_period, 'Среднее', 'Рейтинг']
+
+        with open(output_path, mode='w', encoding='utf-8', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(headers)
+
+            for city_name, city_stats in data.items():
+                row_temp, row_rain = self._process_city_csv_data(city_name, city_stats, ratings[city_name])
+                writer.writerow(row_temp)
+                writer.writerow(row_rain)
+    
+    def _process_city_csv_data(self, city_name: str, city_stats: Dict, rating: int) -> List:
+        row_temp = [city_name, 'Температура, среднее', *city_stats['temperature_values'], city_stats['avg_temp'], rating]
+        row_rain = ['', 'Без осадков, часов', *city_stats['rain_hours_values'], city_stats['avg_rain_hours'], ''] 
+        
+        return row_temp, row_rain
+    
+    def run(self, aggregation_results: Dict[str, Any]):
+        data = aggregation_results['data']
+        days_period = aggregation_results['days_period']
+
+        ratings = self._calculate_ratings(data)
+
+        if self.output_format == 'csv':
+            self._save_to_csv(data, self.output_path, days_period, ratings)
+        else:
+            raise ValueError("Поддерживается только формат CSV")

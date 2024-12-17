@@ -24,6 +24,9 @@ def forecast_weather():
     
     data_aggregation_task = DataAggregationTask()
     data = data_aggregation_task.run()
+    
+    data_analyzing_task = DataAnalyzingTask()
+    data_analyzing_task.run(data)
 
 
 if __name__ == "__main__":

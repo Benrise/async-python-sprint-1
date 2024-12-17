@@ -1,17 +1,13 @@
-# import logging
-# import threading
-# import subprocess
-# import multiprocessing
+import logging
 
-
-from external.client import YandexWeatherAPI
 from tasks import (
     DataFetchingTask,
     DataCalculationTask,
     DataAggregationTask,
     DataAnalyzingTask,
 )
-from utils import CITIES, get_url_by_city_name
+from utils import CITIES
+from external.analyzer import parse_args
 
 
 def forecast_weather():
@@ -28,4 +24,8 @@ def forecast_weather():
 
 
 if __name__ == "__main__":
+    args = parse_args()
+    verbose_mode = args.verbose
+    
+    logging.basicConfig(level=logging.DEBUG if verbose_mode else logging.WARNING)
     forecast_weather()

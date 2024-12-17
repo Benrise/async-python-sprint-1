@@ -65,7 +65,7 @@ class DataFetchingTask(ServiceClass):
                 pool.submit(self._fetch_city_weather_data, city_name) for city_name in self.cities.keys()
             ]
             
-            for future in tqdm(futures, desc="Fetching weather data", unit="task"):
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Fetching weather data", unit="task"):
                 try:
                     result = future.result()
                     self.results.update(result)
@@ -119,7 +119,7 @@ class DataCalculationTask(ServiceClass):
                 for city_name, city_data in data.items()
             }
             
-            for future in tqdm(futures, desc="Calculating days info", unit="task"):
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Calculating data", unit="task"):
                 city_name = futures[future]
                 try:
                     future.result()
@@ -187,13 +187,13 @@ class DataAggregationTask(ServiceClass):
 
         processed_data = {}
         with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
-            future_to_city = {
+            futures = {
                 executor.submit(self._process_city_stats, city_name, city_forecast): city_name
                 for city_name, city_forecast in data.items()
             }
 
-            for future in as_completed(future_to_city):
-                city_name = future_to_city[future]
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Aggregating data", unit="task"):
+                city_name = futures[future]
                 try:
                     city_stats = future.result()
                     processed_data[city_name] = city_stats
@@ -241,7 +241,7 @@ class DataAnalyzingTask:
                     for city_name, city_stats in data.items()
                 }
 
-                for future in as_completed(futures):
+                for future in tqdm(as_completed(futures), total=len(futures), desc="Analyzing data", unit="task"):
                     city_name = futures[future]
                     try:
                         logging.debug(f"Thread {threading.current_thread().name} started writing rows for {city_name}")

@@ -14,9 +14,9 @@ def forecast_weather():
     """
     Анализ погодных условий по городам
     """
-    data_fetching_task = DataFetchingTask(CITIES)
-    data_fetching_task.run()
-    data_fetching_task.save_results_to_json_file('fetching_results.json')
+    # data_fetching_task = DataFetchingTask(CITIES)
+    # data_fetching_task.run()
+    # data_fetching_task.save_results_to_json_file('fetching_results.json')
     
     data_calculation_task = DataCalculationTask()
     data_calculation_task.run()

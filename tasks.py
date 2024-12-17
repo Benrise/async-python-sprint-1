@@ -4,7 +4,8 @@ import multiprocessing
 import threading
 import logging
 
-from typing import Dict, Any
+from multiprocessing import Manager
+from typing import Dict, Any, List
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
@@ -60,70 +61,91 @@ class DataFetchingTask(ServiceClass):
                     self.results.update(result)
                 except Exception as e:
                     city_name = future.args[0]
-                    thread_name = threading.current_thread().name
-                    
-                    logging.error(f"Error fetching weather data for {city_name} in thread {thread_name}")
-                    
-                    self.results[city_name] = {"error": str(e)}
+                    logging.error(f"Error fetching data for {city_name}: {str(e)}")
 
         return self.results
 
 class DataCalculationTask(ServiceClass):
-    def __init__(self, input_path: str = './data/data_fetching_results.json', day_hours_start: int = 9, day_hours_end: int = 19):
+    def __init__(self, input_path: str = './data/fetching_results.json', day_hours_start: int = 9, day_hours_end: int = 19, max_workers: int = 18):
         self.input_path = input_path
         self.day_hours_start = day_hours_start
         self.day_hours_end = day_hours_end
         self.days_forecasts_accessor_key = 'forecasts'
         self.days_analyzed_forecasts_new_key = 'days'
+        self.max_workers = max_workers
         self.results = {}
     
-    def _process_city_days(self, city_data, city_name):
+    def _process_city_days(self, city_data, city_name, queue):
         try:
             logging.debug(f"Process {multiprocessing.current_process().name} started calculating days info for {city_name}")
             days_data = deep_getitem(city_data, self.days_forecasts_accessor_key)
             if days_data is None:
+                queue.put((city_name, []))
                 return []
             
             days_info = [DayInfo(raw_data=day_data).to_json() for day_data in days_data]
             logging.debug(f"Process {multiprocessing.current_process().name} finished calculating days info for {city_name}")
+
+            queue.put((city_name, {self.days_analyzed_forecasts_new_key: days_info}))
             return days_info
         except Exception as e:
             logging.error(f"Error calculating days info for {city_name} in process {multiprocessing.current_process().name}: {str(e)}")
+            queue.put((city_name, {"error": str(e)}))
             return [{city_name: {"error": str(e)}}]
         
     
     def run(self):
         """ 
         Используем процессы, т.к. задача относится к CPU-bound, ограничения GIL не коснутся
+        Используем очередь класса Manager для контрольного доступа к общему словарю results
         """
         data: dict = load_data(self.input_path)
-        days_info = []
+        manager = Manager()
+        queue = manager.Queue()
         
-        with ProcessPoolExecutor() as pool:            
+        with ProcessPoolExecutor(max_workers=self.max_workers) as pool:            
             futures = {
-                pool.submit(self._process_city_days, city_data, city_name): city_name
+                pool.submit(self._process_city_days, city_data, city_name, queue): city_name
                 for city_name, city_data in data.items()
             }
             
             for future in tqdm(futures, desc="Calculating days info", unit="task"):
                 city_name = futures[future]
                 try:
-                    days_info = future.result()
-                    data[city_name][self.days_analyzed_forecasts_new_key] = days_info
-                
+                    future.result()
                 except Exception as e:
-                    process_name = multiprocessing.current_process().name
-                    
-                    logging.error(f"Error calculating days info for {city_name} in process {process_name}")
-                    
-                    self.results[city_name] = {"error": str(e)}
+                    logging.error(f"Error calculating days info for {city_name}: {str(e)}")
             
-        self.results.update(data)
+            while not queue.empty():
+                city_name, city_result = queue.get()
+                self.results[city_name] = city_result
+
         return self.results
 
 class DataAggregationTask:
-    pass
-
+    def __init__(
+        self, 
+        files_to_aggregate: List[str] = ['calculating_results.json','fetching_results.json'],
+        work_dir: str = './data',
+        output_format: str = 'csv',
+    ):
+        self.files_to_aggregate = files_to_aggregate
+        self.work_dir = work_dir
+        self.output_format = output_format
+        self.results = []
+        
+    def load_data(self, filename: str) -> Dict:
+        with open(f"{self.work_dir}/{filename}", 'r', encoding='utf-8') as file:
+            return json.load(file)
+        
+    def run(self):
+        aggregated_data = {}
+        
+        for file in self.files_to_aggregate:
+            data = self.load_data(file)
+            
+            
+        
 
 class DataAnalyzingTask:
     pass

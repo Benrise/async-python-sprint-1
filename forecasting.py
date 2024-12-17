@@ -16,11 +16,14 @@ def forecast_weather():
     """
     data_fetching_task = DataFetchingTask(CITIES)
     data_fetching_task.run()
-    data_fetching_task.save_results_to_json_file('data_fetching_results.json')
+    data_fetching_task.save_results_to_json_file('fetching_results.json')
     
     data_calculation_task = DataCalculationTask()
     data_calculation_task.run()
-    data_calculation_task.save_results_to_json_file('data_calculating_results.json')
+    data_calculation_task.save_results_to_json_file('calculating_results.json')
+    
+    data_aggregation_task = DataAggregationTask()
+    data_aggregation_task.run()
 
 
 if __name__ == "__main__":

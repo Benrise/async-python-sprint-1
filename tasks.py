@@ -5,6 +5,7 @@ import multiprocessing
 import threading
 import logging
 
+from datetime import datetime
 from multiprocessing import Manager, Pool
 from typing import Dict, Any, List
 from tqdm import tqdm
@@ -147,13 +148,16 @@ class DataAggregationTask(ServiceClass):
         
         
     def _get_days_period(self, data: Dict[str, Dict]) -> List[str]:
-        days_period = []
+        days_period = set()
         
         for city_data in data.values():
             if 'days' in city_data and city_data['days']:
                 for day in city_data['days']:
-                    if day.get('date') and day['date'] not in days_period:
-                        days_period.append(day['date'])
+                    if day.get('date'):
+                        date_str: str = day['date']
+                        date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+                        month_day = date_obj.strftime('%m-%d')
+                        days_period.add(month_day)
                         
         return days_period
 

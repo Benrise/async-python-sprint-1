@@ -20,8 +20,11 @@ def forecast_weather():
     """
     data_fetching_task = DataFetchingTask(CITIES)
     data_fetching_task.run()
-    data_fetching_task.save_results_to_json_file()
+    data_fetching_task.save_results_to_json_file('data_fetching_results.json')
     
+    data_calculation_task = DataCalculationTask()
+    data_calculation_task.run()
+    data_calculation_task.save_results_to_json_file('data_calculating_results.json')
 
 
 if __name__ == "__main__":

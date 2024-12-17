@@ -160,30 +160,40 @@ class DataAggregationTask(ServiceClass):
                         days_period.add(month_day)
                         
         return days_period
-
-    def _process_city_csv_data(self, city_name: str, city_data: Dict, days: List[str]) -> List:
-        temperature_values = []
-        rain_hours_values = []
-
-        for day in city_data.get('days', []):
-            if day.get('temp_avg') is not None:
-                temperature_values.append(round(day['temp_avg']))
-            else:
-                temperature_values.append(0)
-
-            if day.get('relevant_cond_hours') is not None:
-                rain_hours_values.append(day['relevant_cond_hours'])
-            else:
-                rain_hours_values.append(0)
-
-        avg_temp = sum(temperature_values) / len(temperature_values) if temperature_values else 0
-        avg_rain_hours = sum(rain_hours_values) / len(rain_hours_values) if rain_hours_values else 0
-
-        row_temp = [city_name, 'Температура, среднее', *temperature_values, avg_temp, '']
-        row_rain = ['', 'Без осадков, часов', *rain_hours_values, avg_rain_hours, ''] 
+    
+    def _get_temperature_values(self, city_data: Dict) -> List[float]:
+        return [round(day['temp_avg']) if day.get('temp_avg') is not None else 0
+                for day in city_data.get('days', [])]
+    
+    def _get_rain_hours_values(self, city_data: Dict) -> List[float]:
+        return [day['relevant_cond_hours'] if day.get('relevant_cond_hours') is not None else 0
+                for day in city_data.get('days', [])]
+    
+    def _calculate_avg(self, values: List[float]) -> float:
+        return sum(values) / len(values) if values else 0
+    
+    def _process_city_stats(self, city_name: str, city_data: Dict) -> Dict:
+        temperature_values = self._get_temperature_values(city_data)
+        rain_hours_values = self._get_rain_hours_values(city_data)
+        
+        avg_temp = self._calculate_avg(temperature_values)
+        avg_rain_hours = self._calculate_avg(rain_hours_values)
+        
+        return {
+            'city_name': city_name,
+            'avg_temp': avg_temp,
+            'avg_rain_hours': avg_rain_hours,
+            'temperature_values': temperature_values,
+            'rain_hours_values': rain_hours_values
+        }
+        
+    def _process_city_csv_data(self, city_name: str, city_data: Dict) -> List:
+        city_stats = self._process_city_stats(city_name, city_data)
+        row_temp = [city_stats['city_name'], 'Температура, среднее', *city_stats['temperature_values'], city_stats['avg_temp'], '']
+        row_rain = ['', 'Без осадков, часов', *city_stats['rain_hours_values'], city_stats['avg_rain_hours'], ''] 
         
         return row_temp, row_rain
-    
+        
     def save_to_csv(self, data: Dict[str, Dict], output_path: str):
         days = self._get_days_period(data)
         headers = ['Город/день', '', *days, 'Среднее']
@@ -195,12 +205,13 @@ class DataAggregationTask(ServiceClass):
             with Pool() as pool:
                 results = pool.starmap(
                     self._process_city_csv_data, 
-                    [(city_name, city_data, days) for city_name, city_data in data.items() if 'days' in city_data]
+                    [(city_name, city_data) for city_name, city_data in data.items() if 'days' in city_data]
                 )
 
                 for row_temp, row_rain in results:
                     writer.writerow(row_temp)
                     writer.writerow(row_rain)
+    
             
     def run(self):
         data: dict = self.load_json_data(self.input_path)

@@ -9,7 +9,7 @@ from datetime import datetime
 from multiprocessing import Manager, Pool
 from typing import Dict, Any, List
 from tqdm import tqdm
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 
 from external.client import YandexWeatherAPI
 from external.analyzer import DayInfo, deep_getitem
@@ -136,14 +136,10 @@ class DataAggregationTask(ServiceClass):
     def __init__(
         self, 
         input_path: str = 'calculating_results.json',
-        output_path: str = './data/aggregation_results',
-        output_format: str = 'csv',
         max_workers: int = 18
     ):
         self.input_path = input_path
-        self.output_path = output_path + '.' + output_format
-        self.output_format = output_format
-        max_workers = max_workers
+        self.max_workers = max_workers
         self.results = []
         
         
@@ -180,46 +176,48 @@ class DataAggregationTask(ServiceClass):
         avg_rain_hours = self._calculate_avg(rain_hours_values)
         
         return {
-            'city_name': city_name,
-            'avg_temp': avg_temp,
-            'avg_rain_hours': avg_rain_hours,
-            'temperature_values': temperature_values,
-            'rain_hours_values': rain_hours_values
+            city_name: {
+                'avg_temp': avg_temp,
+                'avg_rain_hours': avg_rain_hours,
+                'temperature_values': temperature_values,
+                'rain_hours_values': rain_hours_values
+            }
         }
-        
-    def _process_city_csv_data(self, city_name: str, city_data: Dict) -> List:
-        city_stats = self._process_city_stats(city_name, city_data)
-        row_temp = [city_stats['city_name'], 'Температура, среднее', *city_stats['temperature_values'], city_stats['avg_temp'], '']
-        row_rain = ['', 'Без осадков, часов', *city_stats['rain_hours_values'], city_stats['avg_rain_hours'], ''] 
-        
-        return row_temp, row_rain
-        
-    def save_to_csv(self, data: Dict[str, Dict], output_path: str):
-        days = self._get_days_period(data)
-        headers = ['Город/день', '', *days, 'Среднее']
-        
-        with open(output_path, mode='w', newline='', encoding='utf-8') as file:
-            writer = csv.writer(file)
-            writer.writerow(headers)
 
-            with Pool() as pool:
-                results = pool.starmap(
-                    self._process_city_csv_data, 
-                    [(city_name, city_data) for city_name, city_data in data.items() if 'days' in city_data]
-                )
 
-                for row_temp, row_rain in results:
-                    writer.writerow(row_temp)
-                    writer.writerow(row_rain)
-    
-            
-    def run(self):
+    def run(self) -> Dict[str, Any]:
         data: dict = self.load_json_data(self.input_path)
-        
-        if (self.output_format == 'csv'):
-            self.save_to_csv(data, output_path=self.output_path)
-            
-        
+
+        processed_data = {}
+        with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+            future_to_city = {
+                executor.submit(self._process_city_stats, city_name, city_forecast): city_name
+                for city_name, city_forecast in data.items()
+            }
+
+            for future in as_completed(future_to_city):
+                city_name = future_to_city[future]
+                try:
+                    city_stats = future.result()
+                    processed_data[city_name] = city_stats
+                except Exception as e:
+                    print(f"Error processing {city_name}: {e}")
+
+        days_period = self._get_days_period(data)
+
+        return {
+            'days_period': days_period,
+            'data': processed_data,
+        }
+
 
 class DataAnalyzingTask:
-    pass
+    def __init__(
+        self,
+        output_path: str = './data/aggregation_results',
+        output_format: str = 'csv',
+        max_workers: int = 18
+    ):
+        self.output_path = output_path + '.' + output_format
+        self.output_format = output_format
+        self.max_workers = max_workers

@@ -23,7 +23,7 @@ def forecast_weather():
     data_calculation_task.save_results_to_json_file('calculating_results.json')
     
     data_aggregation_task = DataAggregationTask()
-    data_aggregation_task.run()
+    data = data_aggregation_task.run()
 
 
 if __name__ == "__main__":

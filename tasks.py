@@ -5,7 +5,7 @@ import multiprocessing
 import threading
 import logging
 
-from multiprocessing import Manager, Queue
+from multiprocessing import Manager, Pool
 from typing import Dict, Any, List
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
@@ -156,8 +156,8 @@ class DataAggregationTask(ServiceClass):
                         days_period.append(day['date'])
                         
         return days_period
-    
-    def _process_city_csv_data(self, city_name: str, city_data: Dict, days: List[str], output_queue: Queue):
+
+    def _process_city_csv_data(self, city_name: str, city_data: Dict, days: List[str]) -> List:
         temperature_values = []
         rain_hours_values = []
 
@@ -176,34 +176,27 @@ class DataAggregationTask(ServiceClass):
         avg_rain_hours = sum(rain_hours_values) / len(rain_hours_values) if rain_hours_values else 0
 
         row_temp = [city_name, 'Температура, среднее', *temperature_values, avg_temp, '']
-        row_rain = ['', 'Без осадков, часов', *rain_hours_values, avg_rain_hours, '']
+        row_rain = ['', 'Без осадков, часов', *rain_hours_values, avg_rain_hours, ''] 
         
-        output_queue.put((row_temp, row_rain))
-
+        return row_temp, row_rain
+    
     def save_to_csv(self, data: Dict[str, Dict], output_path: str):
         days = self._get_days_period(data)
-        headers = ['Город/День', '', *days, 'Среднее']
+        headers = ['Город/день', '', *days, 'Среднее']
         
         with open(output_path, mode='w', newline='', encoding='utf-8') as file:
             writer = csv.writer(file)
             writer.writerow(headers)
 
-            output_queue = Queue
+            with Pool() as pool:
+                results = pool.starmap(
+                    self._process_city_csv_data, 
+                    [(city_name, city_data, days) for city_name, city_data in data.items() if 'days' in city_data]
+                )
 
-            processes = []
-            for city_name, city_data in data.items():
-                if 'days' in city_data:
-                    p = multiprocessing.Process(target=self._process_city_csv_data, args=(city_name, city_data, days, output_queue))
-                    processes.append(p)
-                    p.start()
-
-            for p in processes:
-                p.join()
-
-            while not output_queue.empty():
-                row_temp, row_rain = output_queue.get()
-                writer.writerow(row_temp)
-                writer.writerow(row_rain)
+                for row_temp, row_rain in results:
+                    writer.writerow(row_temp)
+                    writer.writerow(row_rain)
             
     def run(self):
         data: dict = self.load_json_data(self.input_path)

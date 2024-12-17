@@ -5,7 +5,7 @@ import multiprocessing
 import threading
 import logging
 
-from multiprocessing import Manager
+from multiprocessing import Manager, Queue
 from typing import Dict, Any, List
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
@@ -137,10 +137,12 @@ class DataAggregationTask(ServiceClass):
         input_path: str = 'calculating_results.json',
         output_path: str = './data/aggregation_results',
         output_format: str = 'csv',
+        max_workers: int = 18
     ):
         self.input_path = input_path
         self.output_path = output_path + '.' + output_format
         self.output_format = output_format
+        max_workers = max_workers
         self.results = []
         
         
@@ -154,6 +156,29 @@ class DataAggregationTask(ServiceClass):
                         days_period.append(day['date'])
                         
         return days_period
+    
+    def _process_city_csv_data(self, city_name: str, city_data: Dict, days: List[str], output_queue: Queue):
+        temperature_values = []
+        rain_hours_values = []
+
+        for day in city_data.get('days', []):
+            if day.get('temp_avg') is not None:
+                temperature_values.append(round(day['temp_avg']))
+            else:
+                temperature_values.append(0)
+
+            if day.get('relevant_cond_hours') is not None:
+                rain_hours_values.append(day['relevant_cond_hours'])
+            else:
+                rain_hours_values.append(0)
+
+        avg_temp = sum(temperature_values) / len(temperature_values) if temperature_values else 0
+        avg_rain_hours = sum(rain_hours_values) / len(rain_hours_values) if rain_hours_values else 0
+
+        row_temp = [city_name, 'Температура, среднее', *temperature_values, avg_temp, '']
+        row_rain = ['', 'Без осадков, часов', *rain_hours_values, avg_rain_hours, '']
+        
+        output_queue.put((row_temp, row_rain))
 
     def save_to_csv(self, data: Dict[str, Dict], output_path: str):
         days = self._get_days_period(data)
@@ -161,35 +186,25 @@ class DataAggregationTask(ServiceClass):
         
         with open(output_path, mode='w', newline='', encoding='utf-8') as file:
             writer = csv.writer(file)
-            
             writer.writerow(headers)
-            
+
+            output_queue = Queue
+
+            processes = []
             for city_name, city_data in data.items():
                 if 'days' in city_data:
-                    temperature_values = []
-                    rain_hours_values = []
+                    p = multiprocessing.Process(target=self._process_city_csv_data, args=(city_name, city_data, days, output_queue))
+                    processes.append(p)
+                    p.start()
 
-                    for day in city_data['days']:
-                        if day.get('temp_avg') is not None:
-                            temperature_values.append(round(day['temp_avg']))
-                        else:
-                            temperature_values.append(0)
-                        if day.get('relevant_cond_hours') is not None:
-                            rain_hours_values.append(day['relevant_cond_hours'])
-                        else:
-                            temperature_values.append(0)
-                    
-                    avg_temp = sum(temperature_values) / len(temperature_values) if temperature_values else 0
-                    avg_rain_hours = sum(rain_hours_values) / len(rain_hours_values) if rain_hours_values else 0
-                    
-                    row = [city_name, 'Температура, среднее', *temperature_values, avg_temp, '']
-                    writer.writerow(row)
-                    
-                    row = ['', 'Без осадков, часов', *rain_hours_values, avg_rain_hours, '']
-                    writer.writerow(row)
+            for p in processes:
+                p.join()
 
+            while not output_queue.empty():
+                row_temp, row_rain = output_queue.get()
+                writer.writerow(row_temp)
+                writer.writerow(row_rain)
             
-
     def run(self):
         data: dict = self.load_json_data(self.input_path)
         
